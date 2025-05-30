@@ -1,6 +1,17 @@
 import { PipelineStep, BuildStatistic, NavigationItem } from '../types/pipeline';
 
-export const APP_VERSION = "v2.1.4";
+export const APP_VERSION = process.env.REACT_APP_VERSION || "development";
+
+export const BUILD_DATE = process.env.REACT_APP_BUILD_DATE || new Date().toISOString();
+export const GIT_HASH = process.env.REACT_APP_GIT_HASH || "unknown";
+
+// Build info object
+export const BUILD_INFO = {
+  version: APP_VERSION,
+  buildDate: BUILD_DATE,
+  gitHash: GIT_HASH,
+  environment: process.env.NODE_ENV || 'development'
+};
 
 export const NAVIGATION_ITEMS: NavigationItem[] = [
   { name: 'Dashboard', href: '#' },
