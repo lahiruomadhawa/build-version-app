@@ -1,4 +1,4 @@
-.App {
+/* .App {
   text-align: center;
 }
 
@@ -35,4 +35,12 @@
   to {
     transform: rotate(360deg);
   }
+} */
+
+
+/* Custom styles if needed */
+.App {
+  text-align: center;
 }
+
+/* Add any custom animations or styles here */
