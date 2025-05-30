@@ -1,17 +1,21 @@
 import { PipelineStep, BuildStatistic, NavigationItem } from '../types/pipeline';
 
-export const APP_VERSION = process.env.REACT_APP_VERSION || "development";
+// Import version info
+let versionInfo;
+try {
+  versionInfo = require('../version.json');
+} catch (error) {
+  versionInfo = {
+    version: '1.0.0.0',
+    buildNumber: '0',
+    shortCommit: 'unknown',
+    buildDate: new Date().toLocaleDateString(),
+    buildTime: new Date().toLocaleTimeString()
+  };
+}
 
-export const BUILD_DATE = process.env.REACT_APP_BUILD_DATE || new Date().toISOString();
-export const GIT_HASH = process.env.REACT_APP_GIT_HASH || "unknown";
-
-// Build info object
-export const BUILD_INFO = {
-  version: APP_VERSION,
-  buildDate: BUILD_DATE,
-  gitHash: GIT_HASH,
-  environment: process.env.NODE_ENV || 'development'
-};
+export const APP_VERSION = versionInfo.version;
+export const BUILD_INFO = versionInfo;
 
 export const NAVIGATION_ITEMS: NavigationItem[] = [
   { name: 'Dashboard', href: '#' },
@@ -21,10 +25,10 @@ export const NAVIGATION_ITEMS: NavigationItem[] = [
 ];
 
 export const BUILD_STATISTICS: BuildStatistic[] = [
-  { label: 'Total Builds', value: '1,247', color: 'text-blue-600' },
-  { label: 'Success Rate', value: '94.2%', color: 'text-green-600' },
-  { label: 'Avg Build Time', value: '8.5m', color: 'text-purple-600' },
-  { label: 'Active Pipelines', value: '12', color: 'text-orange-600' }
+  { label: 'App Version', value: versionInfo.version, color: 'text-blue-600' },
+  { label: 'Build Number', value: `#${versionInfo.buildNumber}`, color: 'text-green-600' },
+  { label: 'Git Commit', value: versionInfo.shortCommit, color: 'text-purple-600' },
+  { label: 'Build Date', value: versionInfo.buildDate, color: 'text-orange-600' }
 ];
 
 export const PIPELINE_STEPS: PipelineStep[] = [

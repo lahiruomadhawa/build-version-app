@@ -1,0 +1,187 @@
+pipeline {
+    agent any
+    
+    environment {
+        DOCKER_HUB_REPO = 'your-dockerhub-username/build-pipeline-app'
+        DOCKER_HUB_CREDENTIALS = 'dockerhub-credentials'
+        GITHUB_CREDENTIALS = 'github-credentials'
+        BUILD_TIMESTAMP = sh(script: 'date -u +"%Y-%m-%dT%H:%M:%SZ"', returnStdout: true).trim()
+    }
+    
+    tools {
+        nodejs 'NodeJS-18' // Configure this in Jenkins Global Tool Configuration
+    }
+    
+    stages {
+        stage('Checkout') {
+            steps {
+                checkout scm
+                script {
+                    env.GIT_COMMIT = sh(script: 'git rev-parse HEAD', returnStdout: true).trim()
+                    env.GIT_BRANCH = sh(script: 'git rev-parse --abbrev-ref HEAD', returnStdout: true).trim()
+                    env.SHORT_COMMIT = env.GIT_COMMIT.take(7)
+                }
+            }
+        }
+        
+        stage('Install Dependencies') {
+            steps {
+                sh 'npm ci'
+            }
+        }
+        
+        stage('Run Tests') {
+            steps {
+                sh 'npm test -- --coverage --watchAll=false'
+            }
+            post {
+                always {
+                    publishHTML([
+                        allowMissing: false,
+                        alwaysLinkToLastBuild: true,
+                        keepAll: true,
+                        reportDir: 'coverage/lcov-report',
+                        reportFiles: 'index.html',
+                        reportName: 'Coverage Report'
+                    ])
+                }
+            }
+        }
+        
+        stage('Build Application') {
+            steps {
+                sh """
+                    export BUILD_NUMBER=${BUILD_NUMBER}
+                    export GIT_COMMIT=${GIT_COMMIT}
+                    export GIT_BRANCH=${GIT_BRANCH}
+                    export BUILD_TIMESTAMP=${BUILD_TIMESTAMP}
+                    npm run build:version
+                """
+            }
+        }
+        
+        stage('Build Docker Image') {
+            steps {
+                script {
+                    def imageName = "${DOCKER_HUB_REPO}:${BUILD_NUMBER}"
+                    def latestImageName = "${DOCKER_HUB_REPO}:latest"
+                    
+                    sh """
+                        docker build \
+                            --build-arg BUILD_NUMBER=${BUILD_NUMBER} \
+                            --build-arg GIT_COMMIT=${GIT_COMMIT} \
+                            --build-arg GIT_BRANCH=${GIT_BRANCH} \
+                            --build-arg BUILD_TIMESTAMP="${BUILD_TIMESTAMP}" \
+                            -t ${imageName} \
+                            -t ${latestImageName} \
+                            .
+                    """
+                    
+                    env.DOCKER_IMAGE = imageName
+                    env.DOCKER_IMAGE_LATEST = latestImageName
+                }
+            }
+        }
+        
+        stage('Test Docker Image') {
+            steps {
+                script {
+                    sh """
+                        # Run container for testing
+                        docker run -d --name test-container-${BUILD_NUMBER} -p 3001:80 ${env.DOCKER_IMAGE}
+                        
+                        # Wait for container to start
+                        sleep 10
+                        
+                        # Test if application is responding
+                        curl -f http://localhost:3001/ || exit 1
+                        
+                        # Test version endpoint
+                        curl -f http://localhost:3001/version.json || exit 1
+                        
+                        # Cleanup test container
+                        docker stop test-container-${BUILD_NUMBER}
+                        docker rm test-container-${BUILD_NUMBER}
+                    """
+                }
+            }
+        }
+        
+        stage('Push to Docker Hub') {
+            steps {
+                script {
+                    docker.withRegistry('https://registry.hub.docker.com', DOCKER_HUB_CREDENTIALS) {
+                        sh "docker push ${env.DOCKER_IMAGE}"
+                        sh "docker push ${env.DOCKER_IMAGE_LATEST}"
+                    }
+                }
+            }
+        }
+        
+        stage('Deploy to Staging') {
+            when {
+                branch 'main'
+            }
+            steps {
+                sh """
+                    # Stop existing staging container if running
+                    docker stop staging-app || true
+                    docker rm staging-app || true
+                    
+                    # Run new staging container
+                    docker run -d \
+                        --name staging-app \
+                        -p 3002:80 \
+                        --restart unless-stopped \
+                        ${env.DOCKER_IMAGE}
+                """
+            }
+        }
+        
+        stage('Update GitHub Status') {
+            steps {
+                script {
+                    if (currentBuild.result == null || currentBuild.result == 'SUCCESS') {
+                        sh """
+                            curl -X POST \
+                                -H "Authorization: token \${GITHUB_TOKEN}" \
+                                -H "Accept: application/vnd.github.v3+json" \
+                                https://api.github.com/repos/your-username/your-repo/statuses/${GIT_COMMIT} \
+                                -d '{
+                                    "state": "success",
+                                    "description": "Build ${BUILD_NUMBER} successful",
+                                    "context": "continuous-integration/jenkins"
+                                }'
+                        """
+                    }
+                }
+            }
+        }
+    }
+    
+    post {
+        always {
+            // Clean up Docker images to save space
+            sh """
+                docker image prune -f
+                docker system prune -f
+            """
+        }
+        
+        success {
+            echo "Pipeline completed successfully!"
+            echo "Docker image: ${env.DOCKER_IMAGE}"
+            echo "Staging URL: http://your-server:3002"
+        }
+        
+        failure {
+            echo "Pipeline failed!"
+            // Send notification (email, Slack, etc.)
+        }
+        
+        cleanup {
+            // Clean workspace
+            cleanWs()
+        }
+    }
+}
